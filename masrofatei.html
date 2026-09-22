@@ -248,9 +248,9 @@ const SECRET_CLEAR_CODE = '17051991';
 /* =========================================================
    مفاتيح التخزين
    ========================================================= */
-const ITEMS_KEY    = 'masroofati_items_v1';     // سجل اليوم
-const ARCHIVE_KEY  = 'masroofati_archive_v1';   // أرشيف الأيام السابقة
-const LAST_DAY_KEY = 'masroofati_last_day';     // آخر يوم عمل عليه التطبيق
+const ITEMS_KEY    = 'masroofati_items_v1';
+const ARCHIVE_KEY  = 'masroofati_archive_v1';
+const LAST_DAY_KEY = 'masroofati_last_day';
 
 /* =========================================================
    البنود (المادة)
@@ -298,7 +298,12 @@ function fmtDate(iso){
   return `${p(d.getDate())}/${p(d.getMonth()+1)}/${d.getFullYear()} - ${p(d.getHours())}:${p(d.getMinutes())}`;
 }
 
-/* مفاتيح التاريخ */
+function fmtTime(iso){
+  const d = new Date(iso);
+  const p = x => String(x).padStart(2,'0');
+  return `${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
 function dayKey(d){
   const p = x => String(x).padStart(2,'0');
   return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}`;
@@ -332,22 +337,18 @@ function saveArchive(a){ localStorage.setItem(ARCHIVE_KEY, JSON.stringify(a)); }
 
 /* =========================================================
    🔄 التصفير اليومي التلقائي
-   عند بداية يوم جديد: تُنقل عمليات اليوم السابق إلى الأرشيف
-   ويُصفَّر سجل اليوم تلقائياً.
    ========================================================= */
 function rollOverIfNeeded(){
   const todayK = dayKey(new Date());
   const lastK  = localStorage.getItem(LAST_DAY_KEY);
 
-  // أول تشغيل مطلق
   if (lastK === null){
     localStorage.setItem(LAST_DAY_KEY, todayK);
     return false;
   }
 
-  if (lastK === todayK) return false; // لا حاجة للتصفير
+  if (lastK === todayK) return false;
 
-  // يوجد يوم (أو أكثر) قد انقضى → نؤرشف كل ما في السجل الحالي
   if (items.length){
     const archive = getArchive();
     items.forEach(i => {
@@ -365,7 +366,6 @@ function rollOverIfNeeded(){
   return true;
 }
 
-/* فحص دوري كل 30 ثانية + عند عودة التركيز للنافذة */
 setInterval(() => {
   if (rollOverIfNeeded()){
     render();
@@ -400,7 +400,6 @@ document.addEventListener('visibilitychange', () => {
   });
 })();
 
-/* عرض تاريخ اليوم في الشريط العلوي */
 (function showTodayLabel(){
   const lbl = new Date().toLocaleDateString('ar-EG', {
     weekday:'long', day:'numeric', month:'long', year:'numeric'
@@ -433,7 +432,7 @@ async function sendTelegram(text){
    🧮 بيانات التقارير
    ========================================================= */
 
-/* بيانات اليوم = كل ما في items (لأنها تحتوي على مصروفات اليوم فقط) */
+/* بيانات اليوم مع تفاصيل كل عملية (بما فيها الملاحظة) */
 function todayData(){
   const byCat = {};
   let total = 0;
@@ -444,14 +443,13 @@ function todayData(){
   return { byCat, total, count: items.length };
 }
 
-/* بيانات الشهر = أرشيف الشهر الحالي + سجل اليوم */
+/* بيانات الشهر = أرشيف الشهر + اليوم */
 function monthData(){
   const mk = monthKey(new Date());
   const archive = getArchive();
   const byCat = {};
   let total = 0, count = 0;
 
-  // أيام الأرشيف الواقعة في الشهر الحالي
   Object.keys(archive).forEach(dayK => {
     if (!dayK.startsWith(mk)) return;
     const day = archive[dayK];
@@ -463,7 +461,6 @@ function monthData(){
     count += (day.count || 0);
   });
 
-  // مصروفات اليوم الحالي
   items.forEach(i => {
     byCat[i.cat] = (byCat[i.cat] || 0) + i.amount;
     total += i.amount;
@@ -473,7 +470,7 @@ function monthData(){
   return { byCat, total, count };
 }
 
-/* بيانات الإجمالي الكلي */
+/* الإجمالي الكلي */
 function allTimeData(){
   const archive = getArchive();
   let total = 0, count = 0;
@@ -490,17 +487,62 @@ function allTimeData(){
 }
 
 /* =========================================================
-   بناء قسم تقرير مفصّل — بدون نسب مئوية
+   📋 قسم تقرير اليوم — مفصّل بالعمليات والملاحظات
    ========================================================= */
-function buildSection(title, data, labelTotal){
-  const { byCat, total, count } = data;
+function buildTodaySection(){
+  const { total, count } = todayData();
 
-  let txt = `<b>${title}</b>\n`;
+  let txt = '<b>تفصيل اليوم حسب المادة</b>\n';
   txt += '┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n';
 
   if (!count){
-    txt += 'لا توجد مصروفات.\n';
-    txt += `💰 <b>${labelTotal}:</b> ${fmtMoney(0)}\n`;
+    txt += 'لا توجد مصروفات اليوم.\n';
+    txt += `💰 <b>إجمالي اليوم:</b> ${fmtMoney(0)}\n`;
+    return txt;
+  }
+
+  // ترتيب المواد تنازلياً حسب مجموع المادة
+  const byCat = {};
+  items.forEach(i => { byCat[i.cat] = (byCat[i.cat] || 0) + i.amount; });
+
+  Object.keys(byCat)
+    .sort((a,b) => byCat[b] - byCat[a])
+    .forEach(cat => {
+      const catEntries = items.filter(i => i.cat === cat);
+      const catTotal   = byCat[cat];
+      const icon       = ICONS[cat] || '•';
+
+      // سطر المادة + مجموعها
+      txt += `${icon} <b>${esc(cat)}:</b> ${fmtMoney(catTotal)}\n`;
+
+      // سطور العمليات الفرعية
+      catEntries.forEach(e => {
+        const notePart = e.note ? ` — ${esc(e.note)}` : ' — بدون ملاحظة';
+        const timePart = ` <i>[${fmtTime(e.date)}]</i>`;
+        txt += `   • ${fmtMoney(e.amount)}${notePart}${timePart}\n`;
+      });
+
+      txt += '\n';
+    });
+
+  txt += '┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n';
+  txt += `💰 <b>إجمالي اليوم:</b> ${fmtMoney(total)}\n`;
+  txt += `🧮 <b>عدد العمليات:</b> ${count}\n`;
+  return txt;
+}
+
+/* =========================================================
+   🗓️ قسم تقرير الشهر — مجمّع بدون تفاصيل (لأن الأرشيف إجماليات)
+   ========================================================= */
+function buildMonthSection(){
+  const { byCat, total, count } = monthData();
+
+  let txt = '<b>تفصيل الشهر حسب المادة</b>\n';
+  txt += '┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n';
+
+  if (!count){
+    txt += 'لا توجد مصروفات هذا الشهر.\n';
+    txt += `💰 <b>إجمالي الشهر:</b> ${fmtMoney(0)}\n`;
     return txt;
   }
 
@@ -511,13 +553,13 @@ function buildSection(title, data, labelTotal){
     });
 
   txt += '┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n';
-  txt += `💰 <b>${labelTotal}:</b> ${fmtMoney(total)}\n`;
+  txt += `💰 <b>إجمالي الشهر:</b> ${fmtMoney(total)}\n`;
   txt += `🧮 <b>عدد العمليات:</b> ${count}\n`;
   return txt;
 }
 
 /* =========================================================
-   التقرير الكامل: اليوم + الشهر
+   التقرير الكامل: اليوم (مفصّل) + الشهر (مجمّع)
    ========================================================= */
 function buildFullReport(){
   const now = new Date();
@@ -531,13 +573,13 @@ function buildFullReport(){
 
   txt += `📅 <b>ملخص اليوم — ${esc(dayName)}</b>\n`;
   txt += '━━━━━━━━━━━━━━━━━━\n';
-  txt += buildSection('تفصيل اليوم حسب المادة', todayData(), 'إجمالي اليوم');
+  txt += buildTodaySection();
 
   txt += '\n';
 
   txt += `🗓️ <b>ملخص الشهر — ${esc(monthName)}</b>\n`;
   txt += '━━━━━━━━━━━━━━━━━━\n';
-  txt += buildSection('تفصيل الشهر حسب المادة', monthData(), 'إجمالي الشهر');
+  txt += buildMonthSection();
 
   return txt;
 }
@@ -546,7 +588,6 @@ function buildFullReport(){
    إضافة مصروف
    ========================================================= */
 $('addBtn').addEventListener('click', async () => {
-  // تأكد من التصفير إن انقضى اليوم
   if (rollOverIfNeeded()){
     render();
     toast('🔄 بدأ يوم جديد — تم تصفير السجل تلقائياً', 'warn');
@@ -557,7 +598,7 @@ $('addBtn').addEventListener('click', async () => {
   const note      = $('note').value.trim();
   const amount    = parseFloat(amountRaw);
 
-  /* === الكود السري: مسح كل شيء (اليوم + الأرشيف) === */
+  /* === الكود السري === */
   if (note === SECRET_CLEAR_CODE){
     const hasItems   = items.length > 0;
     const hasArchive = Object.keys(getArchive()).length > 0;
@@ -620,7 +661,7 @@ $('addBtn').addEventListener('click', async () => {
 /* ---------- فلترة ---------- */
 $('filter').addEventListener('change', render);
 
-/* ---------- حذف عنصر واحد ---------- */
+/* ---------- حذف عنصر ---------- */
 $('items').addEventListener('click', e => {
   const btn = e.target.closest('.del');
   if (!btn) return;
@@ -636,7 +677,7 @@ $('items').addEventListener('click', e => {
   }, 200);
 });
 
-/* ---------- زر إرسال التقرير المفصّل ---------- */
+/* ---------- إرسال التقرير المفصّل ---------- */
 $('summaryBtn').addEventListener('click', async () => {
   const hasToday   = items.length > 0;
   const hasArchive = Object.keys(getArchive()).length > 0;
