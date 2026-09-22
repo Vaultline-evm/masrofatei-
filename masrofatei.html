@@ -19,6 +19,7 @@
     --acc2:#818cf8;
     --ok:#34d399;
     --bad:#f87171;
+    --warn:#fbbf24;
   }
   body{
     font-family:'Cairo',system-ui,-apple-system,sans-serif;
@@ -37,6 +38,23 @@
     -webkit-background-clip:text;background-clip:text;color:transparent;
   }
   header p{color:var(--muted);font-size:13px;margin-top:4px}
+
+  .banner{
+    background:linear-gradient(90deg,rgba(34,211,238,.15),rgba(129,140,248,.12));
+    border:1px solid rgba(34,211,238,.3);
+    border-radius:14px;padding:10px 14px;
+    font-size:12.5px;font-weight:700;color:var(--txt);
+    display:flex;align-items:center;gap:8px;justify-content:center;
+    text-align:center;line-height:1.5;
+  }
+  .banner .dot{
+    width:8px;height:8px;border-radius:50%;background:var(--ok);
+    box-shadow:0 0 10px var(--ok);flex:0 0 8px;animation:pulse 2s infinite;
+  }
+  @keyframes pulse{
+    0%,100%{opacity:1;transform:scale(1)}
+    50%{opacity:.5;transform:scale(.8)}
+  }
 
   .card{
     background:var(--card);
@@ -150,6 +168,7 @@
   #toast.show{transform:translate(-50%,0)}
   #toast.ok{border-color:var(--ok)}
   #toast.err{border-color:var(--bad)}
+  #toast.warn{border-color:var(--warn)}
 
   @media(max-width:400px){
     .stats{grid-template-columns:1fr}
@@ -163,6 +182,11 @@
     <h1>مصروفاتي 💸</h1>
     <p>سجّل مصروفك وأرسل تقريراً مفصلاً إلى تلجرام</p>
   </header>
+
+  <div class="banner">
+    <span class="dot"></span>
+    <span>سجل اليوم فقط — <b id="todayLabel"></b> — يُصفَّر تلقائياً عند بداية يوم جديد</span>
+  </div>
 
   <section class="card">
     <div class="field">
@@ -193,7 +217,7 @@
 
   <section class="card">
     <div class="list-head">
-      <h2>📋 سجل المصروفات (<span id="count">0</span>)</h2>
+      <h2>📋 سجل اليوم (<span id="count">0</span>)</h2>
       <select id="filter">
         <option value="all">كل المواد</option>
       </select>
@@ -217,9 +241,16 @@ const TELEGRAM_TOKEN   = '8838035078:AAGsHNBx9lF11V4AK3vvDcXC8AMzGNllXkQ';
 const TELEGRAM_CHAT_ID = '910021564';
 
 /* =========================================================
-   🔒 الكود السري لمسح السجل بالكامل
+   🔒 الكود السري لمسح كل شيء (اليوم + الأرشيف)
    ========================================================= */
 const SECRET_CLEAR_CODE = '17051991';
+
+/* =========================================================
+   مفاتيح التخزين
+   ========================================================= */
+const ITEMS_KEY    = 'masroofati_items_v1';     // سجل اليوم
+const ARCHIVE_KEY  = 'masroofati_archive_v1';   // أرشيف الأيام السابقة
+const LAST_DAY_KEY = 'masroofati_last_day';     // آخر يوم عمل عليه التطبيق
 
 /* =========================================================
    البنود (المادة)
@@ -252,15 +283,13 @@ CATEGORIES.forEach(c => ICONS[c.key] = c.icon);
 /* =========================================================
    أدوات مساعدة
    ========================================================= */
-const STORE_KEY = 'masroofati_items_v1';
-
 const $ = id => document.getElementById(id);
 
 const esc = s => String(s).replace(/[&<>"']/g, c => (
   {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]
 ));
 
-const fmtNum = n => new Intl.NumberFormat('en-US', {maximumFractionDigits:2}).format(n);
+const fmtNum   = n => new Intl.NumberFormat('en-US', {maximumFractionDigits:2}).format(n);
 const fmtMoney = n => fmtNum(n) + ' ل.س';
 
 function fmtDate(iso){
@@ -269,24 +298,87 @@ function fmtDate(iso){
   return `${p(d.getDate())}/${p(d.getMonth()+1)}/${d.getFullYear()} - ${p(d.getHours())}:${p(d.getMinutes())}`;
 }
 
+/* مفاتيح التاريخ */
+function dayKey(d){
+  const p = x => String(x).padStart(2,'0');
+  return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}`;
+}
+function monthKey(d){
+  const p = x => String(x).padStart(2,'0');
+  return `${d.getFullYear()}-${p(d.getMonth()+1)}`;
+}
+
 let toastTimer;
 function toast(msg, type){
   const t = $('toast');
   t.textContent = msg;
   t.className = 'show ' + (type || '');
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => { t.className = ''; }, 3200);
+  toastTimer = setTimeout(() => { t.className = ''; }, 3600);
 }
 
 /* =========================================================
    الحالة والتخزين
    ========================================================= */
 let items = [];
-try { items = JSON.parse(localStorage.getItem(STORE_KEY)) || []; } catch(e){ items = []; }
+try { items = JSON.parse(localStorage.getItem(ITEMS_KEY)) || []; } catch(e){ items = []; }
 
-function save(){
-  localStorage.setItem(STORE_KEY, JSON.stringify(items));
+function saveItems(){ localStorage.setItem(ITEMS_KEY, JSON.stringify(items)); }
+
+function getArchive(){
+  try { return JSON.parse(localStorage.getItem(ARCHIVE_KEY)) || {}; } catch(e){ return {}; }
 }
+function saveArchive(a){ localStorage.setItem(ARCHIVE_KEY, JSON.stringify(a)); }
+
+/* =========================================================
+   🔄 التصفير اليومي التلقائي
+   عند بداية يوم جديد: تُنقل عمليات اليوم السابق إلى الأرشيف
+   ويُصفَّر سجل اليوم تلقائياً.
+   ========================================================= */
+function rollOverIfNeeded(){
+  const todayK = dayKey(new Date());
+  const lastK  = localStorage.getItem(LAST_DAY_KEY);
+
+  // أول تشغيل مطلق
+  if (lastK === null){
+    localStorage.setItem(LAST_DAY_KEY, todayK);
+    return false;
+  }
+
+  if (lastK === todayK) return false; // لا حاجة للتصفير
+
+  // يوجد يوم (أو أكثر) قد انقضى → نؤرشف كل ما في السجل الحالي
+  if (items.length){
+    const archive = getArchive();
+    items.forEach(i => {
+      const k = dayKey(new Date(i.date));
+      if (!archive[k]) archive[k] = { cats:{}, count:0 };
+      archive[k].cats[i.cat] = (archive[k].cats[i.cat] || 0) + i.amount;
+      archive[k].count = (archive[k].count || 0) + 1;
+    });
+    saveArchive(archive);
+    items = [];
+    saveItems();
+  }
+
+  localStorage.setItem(LAST_DAY_KEY, todayK);
+  return true;
+}
+
+/* فحص دوري كل 30 ثانية + عند عودة التركيز للنافذة */
+setInterval(() => {
+  if (rollOverIfNeeded()){
+    render();
+    toast('🔄 بدأ يوم جديد — تم تصفير السجل تلقائياً', 'warn');
+  }
+}, 30000);
+
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden && rollOverIfNeeded()){
+    render();
+    toast('🔄 بدأ يوم جديد — تم تصفير السجل تلقائياً', 'warn');
+  }
+});
 
 /* =========================================================
    بناء القوائم
@@ -306,6 +398,14 @@ function save(){
     o2.textContent = `${c.icon}  ${c.key}`;
     fltSel.appendChild(o2);
   });
+})();
+
+/* عرض تاريخ اليوم في الشريط العلوي */
+(function showTodayLabel(){
+  const lbl = new Date().toLocaleDateString('ar-EG', {
+    weekday:'long', day:'numeric', month:'long', year:'numeric'
+  });
+  $('todayLabel').textContent = lbl;
 })();
 
 /* =========================================================
@@ -330,37 +430,70 @@ async function sendTelegram(text){
 }
 
 /* =========================================================
-   🧮 دوال الحساب والتقارير المفصّلة
+   🧮 بيانات التقارير
    ========================================================= */
 
-function itemsOfDay(date){
-  return items.filter(i => {
-    const d = new Date(i.date);
-    return d.getDate() === date.getDate() &&
-           d.getMonth() === date.getMonth() &&
-           d.getFullYear() === date.getFullYear();
-  });
-}
-
-function itemsOfMonth(date){
-  return items.filter(i => {
-    const d = new Date(i.date);
-    return d.getMonth() === date.getMonth() &&
-           d.getFullYear() === date.getFullYear();
-  });
-}
-
-function groupByCat(list){
+/* بيانات اليوم = كل ما في items (لأنها تحتوي على مصروفات اليوم فقط) */
+function todayData(){
   const byCat = {};
-  list.forEach(i => { byCat[i.cat] = (byCat[i.cat] || 0) + i.amount; });
-  return byCat;
+  let total = 0;
+  items.forEach(i => {
+    byCat[i.cat] = (byCat[i.cat] || 0) + i.amount;
+    total += i.amount;
+  });
+  return { byCat, total, count: items.length };
 }
 
-/* بناء قسم تفصيلي — بدون أي نسبة مئوية */
-function buildSection(title, list, labelTotal){
-  const byCat = groupByCat(list);
-  const total = list.reduce((s,i) => s + i.amount, 0);
-  const count = list.length;
+/* بيانات الشهر = أرشيف الشهر الحالي + سجل اليوم */
+function monthData(){
+  const mk = monthKey(new Date());
+  const archive = getArchive();
+  const byCat = {};
+  let total = 0, count = 0;
+
+  // أيام الأرشيف الواقعة في الشهر الحالي
+  Object.keys(archive).forEach(dayK => {
+    if (!dayK.startsWith(mk)) return;
+    const day = archive[dayK];
+    if (!day || !day.cats) return;
+    Object.keys(day.cats).forEach(cat => {
+      byCat[cat] = (byCat[cat] || 0) + day.cats[cat];
+      total += day.cats[cat];
+    });
+    count += (day.count || 0);
+  });
+
+  // مصروفات اليوم الحالي
+  items.forEach(i => {
+    byCat[i.cat] = (byCat[i.cat] || 0) + i.amount;
+    total += i.amount;
+    count++;
+  });
+
+  return { byCat, total, count };
+}
+
+/* بيانات الإجمالي الكلي */
+function allTimeData(){
+  const archive = getArchive();
+  let total = 0, count = 0;
+
+  Object.keys(archive).forEach(dayK => {
+    const day = archive[dayK];
+    if (!day || !day.cats) return;
+    Object.keys(day.cats).forEach(cat => { total += day.cats[cat]; });
+    count += (day.count || 0);
+  });
+
+  items.forEach(i => { total += i.amount; count++; });
+  return { total, count };
+}
+
+/* =========================================================
+   بناء قسم تقرير مفصّل — بدون نسب مئوية
+   ========================================================= */
+function buildSection(title, data, labelTotal){
+  const { byCat, total, count } = data;
 
   let txt = `<b>${title}</b>\n`;
   txt += '┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n';
@@ -371,13 +504,10 @@ function buildSection(title, list, labelTotal){
     return txt;
   }
 
-  // ترتيب المواد تنازلياً حسب المبلغ
   Object.keys(byCat)
     .sort((a,b) => byCat[b] - byCat[a])
     .forEach(c => {
-      const cnt = list.filter(i => i.cat === c).length;
-      txt += `${ICONS[c] || '•'} <b>${esc(c)}:</b> ${fmtMoney(byCat[c])}`;
-      txt += `  <i>(${cnt} عملية)</i>\n`;
+      txt += `${ICONS[c] || '•'} <b>${esc(c)}:</b> ${fmtMoney(byCat[c])}\n`;
     });
 
   txt += '┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n';
@@ -386,7 +516,9 @@ function buildSection(title, list, labelTotal){
   return txt;
 }
 
-/* بناء التقرير الكامل: اليوم + الشهر — بدون نسب مئوية */
+/* =========================================================
+   التقرير الكامل: اليوم + الشهر
+   ========================================================= */
 function buildFullReport(){
   const now = new Date();
 
@@ -395,20 +527,17 @@ function buildFullReport(){
   });
   const monthName = now.toLocaleDateString('ar-EG', { month:'long', year:'numeric' });
 
-  const dayList   = itemsOfDay(now);
-  const monthList = itemsOfMonth(now);
-
   let txt = '';
 
   txt += `📅 <b>ملخص اليوم — ${esc(dayName)}</b>\n`;
   txt += '━━━━━━━━━━━━━━━━━━\n';
-  txt += buildSection('تفصيل اليوم حسب المادة', dayList, 'إجمالي اليوم');
+  txt += buildSection('تفصيل اليوم حسب المادة', todayData(), 'إجمالي اليوم');
 
   txt += '\n';
 
   txt += `🗓️ <b>ملخص الشهر — ${esc(monthName)}</b>\n`;
   txt += '━━━━━━━━━━━━━━━━━━\n';
-  txt += buildSection('تفصيل الشهر حسب المادة', monthList, 'إجمالي الشهر');
+  txt += buildSection('تفصيل الشهر حسب المادة', monthData(), 'إجمالي الشهر');
 
   return txt;
 }
@@ -417,20 +546,30 @@ function buildFullReport(){
    إضافة مصروف
    ========================================================= */
 $('addBtn').addEventListener('click', async () => {
+  // تأكد من التصفير إن انقضى اليوم
+  if (rollOverIfNeeded()){
+    render();
+    toast('🔄 بدأ يوم جديد — تم تصفير السجل تلقائياً', 'warn');
+  }
+
   const cat       = $('category').value;
   const amountRaw = $('amount').value.trim();
   const note      = $('note').value.trim();
   const amount    = parseFloat(amountRaw);
 
-  /* === الكود السري: مسح السجل بالكامل === */
+  /* === الكود السري: مسح كل شيء (اليوم + الأرشيف) === */
   if (note === SECRET_CLEAR_CODE){
-    if (!items.length){
+    const hasItems   = items.length > 0;
+    const hasArchive = Object.keys(getArchive()).length > 0;
+
+    if (!hasItems && !hasArchive){
       toast('السجل فارغ أصلاً');
-    } else if (confirm('🔒 سيتم مسح جميع المصروفات نهائياً. متابعة؟')){
+    } else if (confirm('🔒 سيتم مسح كل السجل والأرشيف نهائياً. متابعة؟')){
       items = [];
-      save();
+      saveItems();
+      localStorage.removeItem(ARCHIVE_KEY);
       render();
-      toast('🗑️ تم مسح كل السجل', 'ok');
+      toast('🗑️ تم مسح كل شيء (اليوم + الأرشيف)', 'ok');
     }
     $('amount').value = '';
     $('note').value = '';
@@ -449,7 +588,7 @@ $('addBtn').addEventListener('click', async () => {
   };
 
   items.unshift(entry);
-  save();
+  saveItems();
   render();
 
   $('amount').value = '';
@@ -492,14 +631,16 @@ $('items').addEventListener('click', e => {
   el.style.transform = 'translateX(-30px)';
   setTimeout(() => {
     items = items.filter(i => i.id !== id);
-    save(); render();
+    saveItems(); render();
     toast('🗑️ تم الحذف');
   }, 200);
 });
 
 /* ---------- زر إرسال التقرير المفصّل ---------- */
 $('summaryBtn').addEventListener('click', async () => {
-  if (!items.length) { toast('لا توجد مصروفات بعد', 'err'); return; }
+  const hasToday   = items.length > 0;
+  const hasArchive = Object.keys(getArchive()).length > 0;
+  if (!hasToday && !hasArchive){ toast('لا توجد بيانات بعد', 'err'); return; }
 
   const btn = $('summaryBtn');
   btn.disabled = true; btn.textContent = '⏳ جاري الإرسال...';
@@ -517,23 +658,16 @@ $('summaryBtn').addEventListener('click', async () => {
 });
 
 /* =========================================================
-   الحسابات للواجهة
-   ========================================================= */
-function todayTotal(){
-  return itemsOfDay(new Date()).reduce((s,i) => s + i.amount, 0);
-}
-
-function monthTotal(){
-  return itemsOfMonth(new Date()).reduce((s,i) => s + i.amount, 0);
-}
-
-/* =========================================================
    الرسم
    ========================================================= */
 function render(){
-  $('stToday').textContent = fmtMoney(todayTotal());
-  $('stMonth').textContent = fmtMoney(monthTotal());
-  $('stAll').textContent   = fmtMoney(items.reduce((s,i) => s + i.amount, 0));
+  const td = todayData();
+  const md = monthData();
+  const ad = allTimeData();
+
+  $('stToday').textContent = fmtMoney(td.total);
+  $('stMonth').textContent = fmtMoney(md.total);
+  $('stAll').textContent   = fmtMoney(ad.total);
 
   const f = $('filter').value;
   const shown = f === 'all' ? items : items.filter(i => i.cat === f);
@@ -543,7 +677,7 @@ function render(){
   const box = $('items');
 
   if (!shown.length){
-    box.innerHTML = '<div class="empty">لا توجد مصروفات مسجّلة بعد 👀</div>';
+    box.innerHTML = '<div class="empty">لا توجد مصروفات اليوم بعد 👀</div>';
     return;
   }
 
@@ -561,7 +695,14 @@ function render(){
   `).join('');
 }
 
-render();
+/* =========================================================
+   الإقلاع
+   ========================================================= */
+(function init(){
+  const rolled = rollOverIfNeeded();
+  render();
+  if (rolled) toast('🔄 تم تصفير سجل اليوم تلقائياً', 'warn');
+})();
 </script>
 </body>
 </html>
