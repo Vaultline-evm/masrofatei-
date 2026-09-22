@@ -241,7 +241,7 @@ const TELEGRAM_TOKEN   = '8838035078:AAGsHNBx9lF11V4AK3vvDcXC8AMzGNllXkQ';
 const TELEGRAM_CHAT_ID = '910021564';
 
 /* =========================================================
-   🔒 الكود السري لمسح كل شيء (اليوم + الأرشيف)
+   🔒 الكود السري
    ========================================================= */
 const SECRET_CLEAR_CODE = '17051991';
 
@@ -249,11 +249,11 @@ const SECRET_CLEAR_CODE = '17051991';
    مفاتيح التخزين
    ========================================================= */
 const ITEMS_KEY    = 'masroofati_items_v1';
-const ARCHIVE_KEY  = 'masroofati_archive_v1';
+const ARCHIVE_KEY  = 'masroofati_archive_v2';   // ← v2: يحفظ العمليات كاملة
 const LAST_DAY_KEY = 'masroofati_last_day';
 
 /* =========================================================
-   البنود (المادة)
+   البنود
    ========================================================= */
 const CATEGORIES = [
   { key:'طعام',                icon:'🍔' },
@@ -298,10 +298,11 @@ function fmtDate(iso){
   return `${p(d.getDate())}/${p(d.getMonth()+1)}/${d.getFullYear()} - ${p(d.getHours())}:${p(d.getMinutes())}`;
 }
 
-function fmtTime(iso){
+/* اختصار التاريخ والوقت للتقارير: DD/MM HH:MM */
+function fmtShort(iso){
   const d = new Date(iso);
   const p = x => String(x).padStart(2,'0');
-  return `${p(d.getHours())}:${p(d.getMinutes())}`;
+  return `${p(d.getDate())}/${p(d.getMonth()+1)} ${p(d.getHours())}:${p(d.getMinutes())}`;
 }
 
 function dayKey(d){
@@ -330,13 +331,33 @@ try { items = JSON.parse(localStorage.getItem(ITEMS_KEY)) || []; } catch(e){ ite
 
 function saveItems(){ localStorage.setItem(ITEMS_KEY, JSON.stringify(items)); }
 
+/* الأرشيف الجديد: { "YYYY-MM-DD": [ {cat,amount,note,date}, ... ] } */
 function getArchive(){
-  try { return JSON.parse(localStorage.getItem(ARCHIVE_KEY)) || {}; } catch(e){ return {}; }
+  let a;
+  try { a = JSON.parse(localStorage.getItem(ARCHIVE_KEY)) || {}; } catch(e){ a = {}; }
+
+  // ترحيل تلقائي من الصيغة القديمة (كائن مجمّع) إن وُجدت
+  let changed = false;
+  Object.keys(a).forEach(k => {
+    if (!Array.isArray(a[k])) {
+      const old = a[k];
+      const arr = [];
+      if (old && old.cats) {
+        Object.keys(old.cats).forEach(cat => {
+          arr.push({ cat, amount: old.cats[cat], note:'', date: k + 'T12:00:00' });
+        });
+      }
+      a[k] = arr;
+      changed = true;
+    }
+  });
+  if (changed) saveArchive(a);
+  return a;
 }
 function saveArchive(a){ localStorage.setItem(ARCHIVE_KEY, JSON.stringify(a)); }
 
 /* =========================================================
-   🔄 التصفير اليومي التلقائي
+   🔄 التصفير اليومي التلقائي (مع حفظ العمليات كاملة)
    ========================================================= */
 function rollOverIfNeeded(){
   const todayK = dayKey(new Date());
@@ -353,9 +374,13 @@ function rollOverIfNeeded(){
     const archive = getArchive();
     items.forEach(i => {
       const k = dayKey(new Date(i.date));
-      if (!archive[k]) archive[k] = { cats:{}, count:0 };
-      archive[k].cats[i.cat] = (archive[k].cats[i.cat] || 0) + i.amount;
-      archive[k].count = (archive[k].count || 0) + 1;
+      if (!archive[k]) archive[k] = [];
+      archive[k].push({
+        cat   : i.cat,
+        amount: i.amount,
+        note  : i.note || '',
+        date  : i.date
+      });
     });
     saveArchive(archive);
     items = [];
@@ -429,96 +454,67 @@ async function sendTelegram(text){
 }
 
 /* =========================================================
-   🧮 بيانات التقارير
+   🧮 جمع العمليات
    ========================================================= */
 
-/* بيانات اليوم مع تفاصيل كل عملية (بما فيها الملاحظة) */
-function todayData(){
-  const byCat = {};
-  let total = 0;
-  items.forEach(i => {
-    byCat[i.cat] = (byCat[i.cat] || 0) + i.amount;
-    total += i.amount;
-  });
-  return { byCat, total, count: items.length };
+/* عمليات اليوم الحالي */
+function todayEntries(){
+  return items.slice();
 }
 
-/* بيانات الشهر = أرشيف الشهر + اليوم */
-function monthData(){
+/* عمليات الشهر الحالي = الأرشيف (هذا الشهر) + اليوم */
+function monthEntries(){
   const mk = monthKey(new Date());
   const archive = getArchive();
-  const byCat = {};
-  let total = 0, count = 0;
-
+  let list = [];
   Object.keys(archive).forEach(dayK => {
     if (!dayK.startsWith(mk)) return;
-    const day = archive[dayK];
-    if (!day || !day.cats) return;
-    Object.keys(day.cats).forEach(cat => {
-      byCat[cat] = (byCat[cat] || 0) + day.cats[cat];
-      total += day.cats[cat];
-    });
-    count += (day.count || 0);
+    (archive[dayK] || []).forEach(e => list.push(e));
   });
-
-  items.forEach(i => {
-    byCat[i.cat] = (byCat[i.cat] || 0) + i.amount;
-    total += i.amount;
-    count++;
-  });
-
-  return { byCat, total, count };
+  return list.concat(items);
 }
 
-/* الإجمالي الكلي */
-function allTimeData(){
+/* كل العمليات (الأرشيف + اليوم) */
+function allEntries(){
   const archive = getArchive();
-  let total = 0, count = 0;
-
+  let list = [];
   Object.keys(archive).forEach(dayK => {
-    const day = archive[dayK];
-    if (!day || !day.cats) return;
-    Object.keys(day.cats).forEach(cat => { total += day.cats[cat]; });
-    count += (day.count || 0);
+    (archive[dayK] || []).forEach(e => list.push(e));
   });
-
-  items.forEach(i => { total += i.amount; count++; });
-  return { total, count };
+  return list.concat(items);
 }
 
 /* =========================================================
-   📋 قسم تقرير اليوم — مفصّل بالعمليات والملاحظات
+   بناء قسم تفصيلي عام — يعمل لليوم وللشهر معاً
    ========================================================= */
-function buildTodaySection(){
-  const { total, count } = todayData();
+function buildDetailedSection(title, list, labelTotal){
+  const byCat = {};
+  list.forEach(e => { byCat[e.cat] = (byCat[e.cat] || 0) + e.amount; });
 
-  let txt = '<b>تفصيل اليوم حسب المادة</b>\n';
+  const total = list.reduce((s,e) => s + e.amount, 0);
+  const count = list.length;
+
+  let txt = `<b>${title}</b>\n`;
   txt += '┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n';
 
   if (!count){
-    txt += 'لا توجد مصروفات اليوم.\n';
-    txt += `💰 <b>إجمالي اليوم:</b> ${fmtMoney(0)}\n`;
+    txt += 'لا توجد مصروفات.\n';
+    txt += `💰 <b>${labelTotal}:</b> ${fmtMoney(0)}\n`;
     return txt;
   }
-
-  // ترتيب المواد تنازلياً حسب مجموع المادة
-  const byCat = {};
-  items.forEach(i => { byCat[i.cat] = (byCat[i.cat] || 0) + i.amount; });
 
   Object.keys(byCat)
     .sort((a,b) => byCat[b] - byCat[a])
     .forEach(cat => {
-      const catEntries = items.filter(i => i.cat === cat);
-      const catTotal   = byCat[cat];
-      const icon       = ICONS[cat] || '•';
+      const catEntries = list
+        .filter(e => e.cat === cat)
+        .sort((a,b) => new Date(b.date) - new Date(a.date));
 
-      // سطر المادة + مجموعها
-      txt += `${icon} <b>${esc(cat)}:</b> ${fmtMoney(catTotal)}\n`;
+      txt += `${ICONS[cat] || '•'} <b>${esc(cat)}:</b> ${fmtMoney(byCat[cat])}\n`;
 
-      // سطور العمليات الفرعية
       catEntries.forEach(e => {
         const notePart = e.note ? ` — ${esc(e.note)}` : ' — بدون ملاحظة';
-        const timePart = ` <i>[${fmtTime(e.date)}]</i>`;
+        const timePart = ` <i>[${fmtShort(e.date)}]</i>`;
         txt += `   • ${fmtMoney(e.amount)}${notePart}${timePart}\n`;
       });
 
@@ -526,40 +522,13 @@ function buildTodaySection(){
     });
 
   txt += '┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n';
-  txt += `💰 <b>إجمالي اليوم:</b> ${fmtMoney(total)}\n`;
+  txt += `💰 <b>${labelTotal}:</b> ${fmtMoney(total)}\n`;
   txt += `🧮 <b>عدد العمليات:</b> ${count}\n`;
   return txt;
 }
 
 /* =========================================================
-   🗓️ قسم تقرير الشهر — مجمّع بدون تفاصيل (لأن الأرشيف إجماليات)
-   ========================================================= */
-function buildMonthSection(){
-  const { byCat, total, count } = monthData();
-
-  let txt = '<b>تفصيل الشهر حسب المادة</b>\n';
-  txt += '┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n';
-
-  if (!count){
-    txt += 'لا توجد مصروفات هذا الشهر.\n';
-    txt += `💰 <b>إجمالي الشهر:</b> ${fmtMoney(0)}\n`;
-    return txt;
-  }
-
-  Object.keys(byCat)
-    .sort((a,b) => byCat[b] - byCat[a])
-    .forEach(c => {
-      txt += `${ICONS[c] || '•'} <b>${esc(c)}:</b> ${fmtMoney(byCat[c])}\n`;
-    });
-
-  txt += '┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n';
-  txt += `💰 <b>إجمالي الشهر:</b> ${fmtMoney(total)}\n`;
-  txt += `🧮 <b>عدد العمليات:</b> ${count}\n`;
-  return txt;
-}
-
-/* =========================================================
-   التقرير الكامل: اليوم (مفصّل) + الشهر (مجمّع)
+   التقرير الكامل: اليوم + الشهر — كلاهما مفصّل
    ========================================================= */
 function buildFullReport(){
   const now = new Date();
@@ -573,13 +542,13 @@ function buildFullReport(){
 
   txt += `📅 <b>ملخص اليوم — ${esc(dayName)}</b>\n`;
   txt += '━━━━━━━━━━━━━━━━━━\n';
-  txt += buildTodaySection();
+  txt += buildDetailedSection('تفصيل اليوم حسب المادة', todayEntries(), 'إجمالي اليوم');
 
   txt += '\n';
 
   txt += `🗓️ <b>ملخص الشهر — ${esc(monthName)}</b>\n`;
   txt += '━━━━━━━━━━━━━━━━━━\n';
-  txt += buildMonthSection();
+  txt += buildDetailedSection('تفصيل الشهر حسب المادة', monthEntries(), 'إجمالي الشهر');
 
   return txt;
 }
@@ -702,13 +671,15 @@ $('summaryBtn').addEventListener('click', async () => {
    الرسم
    ========================================================= */
 function render(){
-  const td = todayData();
-  const md = monthData();
-  const ad = allTimeData();
+  const todayList = todayEntries();
+  const monthList = monthEntries();
+  const allList   = allEntries();
 
-  $('stToday').textContent = fmtMoney(td.total);
-  $('stMonth').textContent = fmtMoney(md.total);
-  $('stAll').textContent   = fmtMoney(ad.total);
+  const sum = list => list.reduce((s,e) => s + e.amount, 0);
+
+  $('stToday').textContent = fmtMoney(sum(todayList));
+  $('stMonth').textContent = fmtMoney(sum(monthList));
+  $('stAll').textContent   = fmtMoney(sum(allList));
 
   const f = $('filter').value;
   const shown = f === 'all' ? items : items.filter(i => i.cat === f);
