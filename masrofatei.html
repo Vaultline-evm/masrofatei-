@@ -333,7 +333,6 @@ async function sendTelegram(text){
    🧮 دوال الحساب والتقارير المفصّلة
    ========================================================= */
 
-/* فلترة مصروفات يوم معيّن */
 function itemsOfDay(date){
   return items.filter(i => {
     const d = new Date(i.date);
@@ -343,7 +342,6 @@ function itemsOfDay(date){
   });
 }
 
-/* فلترة مصروفات شهر معيّن */
 function itemsOfMonth(date){
   return items.filter(i => {
     const d = new Date(i.date);
@@ -352,15 +350,14 @@ function itemsOfMonth(date){
   });
 }
 
-/* تجميع حسب المادة */
 function groupByCat(list){
   const byCat = {};
   list.forEach(i => { byCat[i.cat] = (byCat[i.cat] || 0) + i.amount; });
   return byCat;
 }
 
-/* بناء قسم تفصيلي (يومي أو شهري) */
-function buildSection(title, list){
+/* بناء قسم تفصيلي — بدون أي نسبة مئوية */
+function buildSection(title, list, labelTotal){
   const byCat = groupByCat(list);
   const total = list.reduce((s,i) => s + i.amount, 0);
   const count = list.length;
@@ -370,7 +367,7 @@ function buildSection(title, list){
 
   if (!count){
     txt += 'لا توجد مصروفات.\n';
-    txt += `💰 <b>الإجمالي:</b> ${fmtMoney(0)}\n`;
+    txt += `💰 <b>${labelTotal}:</b> ${fmtMoney(0)}\n`;
     return txt;
   }
 
@@ -378,19 +375,18 @@ function buildSection(title, list){
   Object.keys(byCat)
     .sort((a,b) => byCat[b] - byCat[a])
     .forEach(c => {
-      const pct = ((byCat[c] / total) * 100).toFixed(1);
       const cnt = list.filter(i => i.cat === c).length;
-      txt += `${ICONS[c] || '•'} <b>${esc(c)}:</b> ${fmtMoney(byCat[c])}  `;
-      txt += `<i>(${pct}% — ${cnt} عملية)</i>\n`;
+      txt += `${ICONS[c] || '•'} <b>${esc(c)}:</b> ${fmtMoney(byCat[c])}`;
+      txt += `  <i>(${cnt} عملية)</i>\n`;
     });
 
   txt += '┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n';
-  txt += `💰 <b>إجمالي ${title.includes('اليوم') ? 'اليوم' : 'الشهر'}:</b> ${fmtMoney(total)}\n`;
+  txt += `💰 <b>${labelTotal}:</b> ${fmtMoney(total)}\n`;
   txt += `🧮 <b>عدد العمليات:</b> ${count}\n`;
   return txt;
 }
 
-/* بناء التقرير الكامل: اليوم + الشهر */
+/* بناء التقرير الكامل: اليوم + الشهر — بدون نسب مئوية */
 function buildFullReport(){
   const now = new Date();
 
@@ -404,17 +400,15 @@ function buildFullReport(){
 
   let txt = '';
 
-  // ====== ملخص اليوم ======
   txt += `📅 <b>ملخص اليوم — ${esc(dayName)}</b>\n`;
   txt += '━━━━━━━━━━━━━━━━━━\n';
-  txt += buildSection('تفصيل اليوم حسب المادة', dayList);
+  txt += buildSection('تفصيل اليوم حسب المادة', dayList, 'إجمالي اليوم');
 
   txt += '\n';
 
-  // ====== ملخص الشهر ======
   txt += `🗓️ <b>ملخص الشهر — ${esc(monthName)}</b>\n`;
   txt += '━━━━━━━━━━━━━━━━━━\n';
-  txt += buildSection('تفصيل الشهر حسب المادة', monthList);
+  txt += buildSection('تفصيل الشهر حسب المادة', monthList, 'إجمالي الشهر');
 
   return txt;
 }
@@ -465,7 +459,6 @@ $('addBtn').addEventListener('click', async () => {
   btn.disabled = true;
   btn.textContent = '⏳ جاري الإرسال...';
 
-  // ====== رسالة العملية + التقرير الكامل ======
   let msg = '';
   msg += '💸 <b>مصروف جديد</b>\n';
   msg += '━━━━━━━━━━━━━━━━━━\n';
