@@ -1,0 +1,527 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>مصروفاتي 💸</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;900&display=swap" rel="stylesheet">
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  :root{
+    --bg:#0b1220;
+    --card:rgba(30,41,59,.75);
+    --line:rgba(148,163,184,.18);
+    --txt:#e2e8f0;
+    --muted:#94a3b8;
+    --acc:#22d3ee;
+    --acc2:#818cf8;
+    --ok:#34d399;
+    --bad:#f87171;
+  }
+  body{
+    font-family:'Cairo',system-ui,-apple-system,sans-serif;
+    background:
+      radial-gradient(900px 500px at 100% -10%, rgba(129,140,248,.25), transparent 60%),
+      radial-gradient(800px 500px at -10% 110%, rgba(34,211,238,.18), transparent 60%),
+      var(--bg);
+    min-height:100vh;color:var(--txt);padding:16px 14px 60px;
+  }
+  .app{max-width:680px;margin:0 auto;display:flex;flex-direction:column;gap:16px}
+
+  header{text-align:center;padding:10px 0 2px}
+  header h1{
+    font-size:30px;font-weight:900;letter-spacing:-.5px;
+    background:linear-gradient(90deg,var(--acc),var(--acc2));
+    -webkit-background-clip:text;background-clip:text;color:transparent;
+  }
+  header p{color:var(--muted);font-size:13px;margin-top:4px}
+
+  .card{
+    background:var(--card);
+    border:1px solid var(--line);
+    border-radius:20px;
+    padding:18px;
+    backdrop-filter:blur(10px);
+    box-shadow:0 10px 30px rgba(0,0,0,.25);
+  }
+
+  .label{display:block;font-size:13px;font-weight:700;color:var(--muted);margin-bottom:8px}
+
+  /* ==== الحقول ==== */
+  .field{margin-bottom:14px}
+  input[type=text],input[type=number],select{
+    width:100%;padding:13px 14px;border-radius:14px;
+    background:rgba(15,23,42,.7);
+    border:1.5px solid var(--line);
+    color:var(--txt);font-family:inherit;font-size:15px;font-weight:600;
+    outline:none;transition:.18s;
+  }
+  input:focus,select:focus{border-color:var(--acc);box-shadow:0 0 0 3px rgba(34,211,238,.13)}
+  input::placeholder{color:#64748b;font-weight:400}
+
+  select{
+    cursor:pointer;
+    appearance:none;
+    background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%2322d3ee' stroke-width='3' stroke-linecap='round'><polyline points='6 9 12 15 18 9'/></svg>");
+    background-repeat:no-repeat;
+    background-position:left 14px center;
+    padding-left:40px;
+  }
+  select option{
+    background:#0f172a;color:var(--txt);font-weight:600;
+  }
+
+  .amount-wrap{position:relative}
+  .amount-wrap input{padding-left:58px;font-size:20px;font-weight:800;letter-spacing:.5px}
+  .amount-wrap::after{
+    content:"ل.س";position:absolute;left:14px;top:50%;transform:translateY(-50%);
+    color:var(--acc);font-weight:800;font-size:14px;pointer-events:none;
+  }
+
+  .btn{
+    width:100%;padding:15px;border:none;border-radius:16px;cursor:pointer;
+    font-family:inherit;font-size:16px;font-weight:800;color:#04121a;
+    background:linear-gradient(90deg,var(--acc),var(--acc2));
+    transition:.18s;
+  }
+  .btn:hover{filter:brightness(1.1);transform:translateY(-1px)}
+  .btn:active{transform:translateY(0)}
+  .btn:disabled{opacity:.55;cursor:not-allowed;transform:none}
+
+  .btn.ghost{
+    background:transparent;color:var(--txt);border:1.5px solid var(--line);
+    font-size:13.5px;padding:11px;
+  }
+  .btn.ghost:hover{background:rgba(148,163,184,.12);filter:none}
+
+  /* ==== الإحصائيات ==== */
+  .stats{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+  .stat{
+    background:var(--card);border:1px solid var(--line);border-radius:16px;
+    padding:12px 8px;text-align:center;
+  }
+  .stat .t{font-size:11px;color:var(--muted);font-weight:700;margin-bottom:6px}
+  .stat .v{font-size:15px;font-weight:900;color:var(--acc);word-break:break-all}
+  .stat.total .v{color:var(--acc2)}
+
+  /* ==== القائمة ==== */
+  .list-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:12px;flex-wrap:wrap}
+  .list-head h2{font-size:16px;font-weight:800}
+  .list-head select{
+    width:auto;min-width:140px;padding:8px 36px 8px 12px;font-size:12.5px;border-radius:12px;
+    background-position:left 10px center;
+  }
+
+  .items{display:flex;flex-direction:column;gap:8px;max-height:430px;overflow-y:auto;padding-left:2px}
+  .items::-webkit-scrollbar{width:6px}
+  .items::-webkit-scrollbar-thumb{background:rgba(148,163,184,.3);border-radius:9px}
+
+  .item{
+    display:flex;align-items:center;gap:11px;
+    background:rgba(15,23,42,.6);
+    border:1px solid var(--line);border-radius:14px;
+    padding:11px 12px;
+    animation:pop .25s ease;
+  }
+  @keyframes pop{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:none}}
+  .item .ico{
+    width:40px;height:40px;flex:0 0 40px;border-radius:12px;
+    display:grid;place-items:center;font-size:19px;
+    background:rgba(34,211,238,.12);
+  }
+  .item .info{flex:1;min-width:0}
+  .item .info .cat{font-size:13.5px;font-weight:800}
+  .item .info .note{font-size:11.5px;color:var(--muted);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .item .info .date{font-size:10.5px;color:#64748b;margin-top:2px}
+  .item .amt{font-size:14.5px;font-weight:900;color:var(--ok);white-space:nowrap}
+  .item .del{
+    background:transparent;border:none;color:#64748b;cursor:pointer;
+    font-size:17px;padding:6px;border-radius:10px;transition:.15s;line-height:1;
+  }
+  .item .del:hover{color:var(--bad);background:rgba(248,113,113,.12)}
+
+  .empty{text-align:center;color:var(--muted);font-size:13px;padding:26px 0}
+
+  /* ==== التنبيه ==== */
+  #toast{
+    position:fixed;bottom:20px;left:50%;transform:translate(-50%,120px);
+    background:#0f172a;border:1.5px solid var(--line);
+    color:var(--txt);padding:12px 20px;border-radius:14px;
+    font-size:13.5px;font-weight:700;z-index:99;
+    transition:.3s;box-shadow:0 12px 30px rgba(0,0,0,.5);
+    max-width:90vw;text-align:center;
+  }
+  #toast.show{transform:translate(-50%,0)}
+  #toast.ok{border-color:var(--ok)}
+  #toast.err{border-color:var(--bad)}
+
+  @media(max-width:400px){
+    .stats{grid-template-columns:1fr}
+  }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <header>
+    <h1>مصروفاتي 💸</h1>
+    <p>سجّل مصروفك وأرسل إشعاراً فورياً إلى تلجرام</p>
+  </header>
+
+  <!-- ============ نموذج الإضافة ============ -->
+  <section class="card">
+    <div class="field">
+      <label class="label" for="category">المادة</label>
+      <select id="category"></select>
+    </div>
+
+    <div class="field">
+      <label class="label" for="amount">المبلغ</label>
+      <div class="amount-wrap">
+        <input type="number" id="amount" inputmode="decimal" min="0" step="any" placeholder="0" />
+      </div>
+    </div>
+
+    <div class="field">
+      <label class="label" for="note">ملاحظة <span style="font-weight:400">(اختياري)</span></label>
+      <input type="text" id="note" maxlength="120" placeholder="مثال: غداء مع الأصدقاء" />
+    </div>
+
+    <button class="btn" id="addBtn">➕ إضافة المصروف وإرساله</button>
+  </section>
+
+  <!-- ============ الإحصائيات ============ -->
+  <section class="stats">
+    <div class="stat"><div class="t">مصروف اليوم</div><div class="v" id="stToday">0</div></div>
+    <div class="stat"><div class="t">مصروف الشهر</div><div class="v" id="stMonth">0</div></div>
+    <div class="stat total"><div class="t">الإجمالي الكلي</div><div class="v" id="stAll">0</div></div>
+  </section>
+
+  <!-- ============ القائمة ============ -->
+  <section class="card">
+    <div class="list-head">
+      <h2>📋 سجل المصروفات (<span id="count">0</span>)</h2>
+      <select id="filter">
+        <option value="all">كل المواد</option>
+      </select>
+    </div>
+    <div class="items" id="items"></div>
+
+    <div style="margin-top:14px">
+      <button class="btn ghost" id="summaryBtn">📤 إرسال ملخص الشهر</button>
+    </div>
+  </section>
+
+</div>
+
+<div id="toast"></div>
+
+<script>
+/* =========================================================
+   ⚙️ إعدادات تلجرام (مخفية داخل الكود)
+   ========================================================= */
+const TELEGRAM_TOKEN   = '8838035078:AAGsHNBx9lF11V4AK3vvDcXC8AMzGNllXkQ';
+const TELEGRAM_CHAT_ID = '910021564';
+
+/* =========================================================
+   🔒 الكود السري لمسح السجل بالكامل
+   اكتبه في حقل الملاحظة ثم اضغط "إضافة" وسيُمسح كل السجل
+   ========================================================= */
+const SECRET_CLEAR_CODE = '17051991';
+
+/* =========================================================
+   البنود (المادة)
+   ========================================================= */
+const CATEGORIES = [
+  { key:'طعام',                icon:'🍔' },
+  { key:'شراب',                icon:'☕' },
+  { key:'مواصلات',             icon:'🚗' },
+  { key:'رفاهية وترفيه',        icon:'🎮' },
+  { key:'فواتير وخدمات',        icon:'🧾' },
+  { key:'سكن وإيجار',           icon:'🏠' },
+  { key:'مستلزمات منزلية',      icon:'🧹' },
+  { key:'صحة ودواء',            icon:'💊' },
+  { key:'ملابس وعناية',         icon:'👕' },
+  { key:'تعليم وتطوير',         icon:'📚' },
+  { key:'ديون وأقساط',          icon:'💳' },
+  { key:'ادخار وطوارئ',         icon:'🏦' },
+  { key:'رسوم وتأمينات',        icon:'📄' },
+  { key:'هدايا ومناسبات',       icon:'🎁' },
+  { key:'تبرعات وزكاة',         icon:'🤲' },
+  { key:'سفر ورحلات',           icon:'✈️' },
+  { key:'صيانة وتصليحات',       icon:'🔧' },
+  { key:'حيوانات أليفة',        icon:'🐾' },
+  { key:'أخرى',                icon:'📦' }
+];
+
+const ICONS = {};
+CATEGORIES.forEach(c => ICONS[c.key] = c.icon);
+
+/* =========================================================
+   أدوات مساعدة
+   ========================================================= */
+const STORE_KEY = 'masroofati_items_v1';
+
+const $ = id => document.getElementById(id);
+
+const esc = s => String(s).replace(/[&<>"']/g, c => (
+  {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]
+));
+
+const fmtNum = n => new Intl.NumberFormat('en-US', {maximumFractionDigits:2}).format(n);
+const fmtMoney = n => fmtNum(n) + ' ل.س';
+
+function fmtDate(iso){
+  const d = new Date(iso);
+  const p = x => String(x).padStart(2,'0');
+  return `${p(d.getDate())}/${p(d.getMonth()+1)}/${d.getFullYear()} - ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
+let toastTimer;
+function toast(msg, type){
+  const t = $('toast');
+  t.textContent = msg;
+  t.className = 'show ' + (type || '');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { t.className = ''; }, 3200);
+}
+
+/* =========================================================
+   الحالة والتخزين
+   ========================================================= */
+let items = [];
+try { items = JSON.parse(localStorage.getItem(STORE_KEY)) || []; } catch(e){ items = []; }
+
+function save(){
+  localStorage.setItem(STORE_KEY, JSON.stringify(items));
+}
+
+/* =========================================================
+   بناء قائمتي المادة والفلتر
+   ========================================================= */
+(function buildSelects(){
+  const catSel = $('category');
+  const fltSel = $('filter');
+
+  CATEGORIES.forEach(c => {
+    const o1 = document.createElement('option');
+    o1.value = c.key;
+    o1.textContent = `${c.icon}  ${c.key}`;
+    catSel.appendChild(o1);
+
+    const o2 = document.createElement('option');
+    o2.value = c.key;
+    o2.textContent = `${c.icon}  ${c.key}`;
+    fltSel.appendChild(o2);
+  });
+})();
+
+/* =========================================================
+   تلجرام — الإرسال
+   ========================================================= */
+async function sendTelegram(text){
+  try{
+    const res = await fetch(`https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`, {
+      method : 'POST',
+      headers: { 'Content-Type':'application/json' },
+      body   : JSON.stringify({
+        chat_id   : TELEGRAM_CHAT_ID,
+        text      : text,
+        parse_mode: 'HTML',
+        disable_web_page_preview: true
+      })
+    });
+    return await res.json();
+  }catch(err){
+    return { ok:false, description:'تعذّر الاتصال بالإنترنت' };
+  }
+}
+
+/* =========================================================
+   إضافة مصروف
+   ========================================================= */
+$('addBtn').addEventListener('click', async () => {
+  const cat       = $('category').value;
+  const amountRaw = $('amount').value.trim();
+  const note      = $('note').value.trim();
+  const amount    = parseFloat(amountRaw);
+
+  /* === الكود السري: مسح السجل بالكامل === */
+  if (note === SECRET_CLEAR_CODE){
+    if (!items.length){
+      toast('السجل فارغ أصلاً');
+    } else if (confirm('🔒 سيتم مسح جميع المصروفات نهائياً. متابعة؟')){
+      items = [];
+      save();
+      render();
+      toast('🗑️ تم مسح كل السجل', 'ok');
+    }
+    $('amount').value = '';
+    $('note').value = '';
+    return;
+  }
+
+  if (amountRaw === '' || isNaN(amount)) { toast('⚠️ الرجاء إدخال المبلغ', 'err'); $('amount').focus(); return; }
+  if (amount <= 0) { toast('⚠️ المبلغ يجب أن يكون أكبر من صفر', 'err'); return; }
+
+  const entry = {
+    id    : Date.now() + '_' + Math.random().toString(36).slice(2,7),
+    cat   : cat,
+    amount: amount,
+    note  : note,
+    date  : new Date().toISOString()
+  };
+
+  items.unshift(entry);
+  save();
+  render();
+
+  $('amount').value = '';
+  $('note').value   = '';
+
+  const btn = $('addBtn');
+  btn.disabled = true;
+  btn.textContent = '⏳ جاري الإرسال...';
+
+  const msg =
+    '💸 <b>مصروف جديد</b>\n' +
+    '━━━━━━━━━━━━━━\n' +
+    `📂 <b>المادة:</b> ${ICONS[entry.cat] || ''} ${esc(entry.cat)}\n` +
+    `💰 <b>المبلغ:</b> ${fmtMoney(entry.amount)}\n` +
+    (entry.note ? `📝 <b>ملاحظة:</b> ${esc(entry.note)}\n` : '') +
+    `🕒 <b>التاريخ:</b> ${fmtDate(entry.date)}\n` +
+    '━━━━━━━━━━━━━━\n' +
+    `📊 إجمالي اليوم: ${fmtMoney(todayTotal())}`;
+
+  const r = await sendTelegram(msg);
+
+  btn.disabled = false;
+  btn.textContent = '➕ إضافة المصروف وإرساله';
+
+  if (r && r.ok) toast('✅ تم الحفظ وإرسال الإشعار', 'ok');
+  else           toast('💾 تم الحفظ محلياً — فشل الإرسال', 'err');
+});
+
+/* ---------- فلترة ---------- */
+$('filter').addEventListener('change', render);
+
+/* ---------- حذف عنصر واحد ---------- */
+$('items').addEventListener('click', e => {
+  const btn = e.target.closest('.del');
+  if (!btn) return;
+  const id = btn.dataset.id;
+  const el = btn.closest('.item');
+  el.style.transition = '.25s';
+  el.style.opacity = '0';
+  el.style.transform = 'translateX(-30px)';
+  setTimeout(() => {
+    items = items.filter(i => i.id !== id);
+    save(); render();
+    toast('🗑️ تم الحذف');
+  }, 200);
+});
+
+/* ---------- ملخص الشهر ---------- */
+$('summaryBtn').addEventListener('click', async () => {
+  const now = new Date();
+  const month = items.filter(i => {
+    const d = new Date(i.date);
+    return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+  });
+
+  if (!month.length) { toast('لا توجد مصروفات هذا الشهر', 'err'); return; }
+
+  const byCat = {};
+  let total = 0;
+  month.forEach(i => {
+    byCat[i.cat] = (byCat[i.cat] || 0) + i.amount;
+    total += i.amount;
+  });
+
+  const monthName = now.toLocaleDateString('ar-EG', { month:'long', year:'numeric' });
+
+  let txt = `📊 <b>ملخص مصروفات ${esc(monthName)}</b>\n━━━━━━━━━━━━━━\n`;
+  Object.keys(byCat)
+    .sort((a,b) => byCat[b] - byCat[a])
+    .forEach(c => {
+      const pct = ((byCat[c]/total) * 100).toFixed(0);
+      txt += `${ICONS[c] || '•'} <b>${esc(c)}:</b> ${fmtMoney(byCat[c])}  <i>(${pct}%)</i>\n`;
+    });
+  txt += '━━━━━━━━━━━━━━\n';
+  txt += `💰 <b>الإجمالي:</b> ${fmtMoney(total)}\n`;
+  txt += `🧮 <b>عدد العمليات:</b> ${month.length}`;
+
+  const btn = $('summaryBtn');
+  btn.disabled = true; btn.textContent = '⏳ جاري الإرسال...';
+  const r = await sendTelegram(txt);
+  btn.disabled = false; btn.textContent = '📤 إرسال ملخص الشهر';
+
+  if (r && r.ok) toast('✅ تم إرسال الملخص', 'ok');
+  else           toast('❌ فشل الإرسال', 'err');
+});
+
+/* =========================================================
+   الحسابات
+   ========================================================= */
+function todayTotal(){
+  const now = new Date();
+  return items
+    .filter(i => {
+      const d = new Date(i.date);
+      return d.getDate() === now.getDate() &&
+             d.getMonth() === now.getMonth() &&
+             d.getFullYear() === now.getFullYear();
+    })
+    .reduce((s,i) => s + i.amount, 0);
+}
+
+function monthTotal(){
+  const now = new Date();
+  return items
+    .filter(i => {
+      const d = new Date(i.date);
+      return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+    })
+    .reduce((s,i) => s + i.amount, 0);
+}
+
+/* =========================================================
+   الرسم
+   ========================================================= */
+function render(){
+  $('stToday').textContent = fmtMoney(todayTotal());
+  $('stMonth').textContent = fmtMoney(monthTotal());
+  $('stAll').textContent   = fmtMoney(items.reduce((s,i) => s + i.amount, 0));
+
+  const f = $('filter').value;
+  const shown = f === 'all' ? items : items.filter(i => i.cat === f);
+
+  $('count').textContent = items.length;
+
+  const box = $('items');
+
+  if (!shown.length){
+    box.innerHTML = '<div class="empty">لا توجد مصروفات مسجّلة بعد 👀</div>';
+    return;
+  }
+
+  box.innerHTML = shown.map(i => `
+    <div class="item">
+      <div class="ico">${ICONS[i.cat] || '📦'}</div>
+      <div class="info">
+        <div class="cat">${esc(i.cat)}</div>
+        ${i.note ? `<div class="note">📝 ${esc(i.note)}</div>` : ''}
+        <div class="date">${fmtDate(i.date)}</div>
+      </div>
+      <div class="amt">${fmtMoney(i.amount)}</div>
+      <button class="del" data-id="${i.id}" title="حذف">✕</button>
+    </div>
+  `).join('');
+}
+
+render();
+</script>
+</body>
+</html>
